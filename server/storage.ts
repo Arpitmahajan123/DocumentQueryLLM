@@ -41,19 +41,15 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    for (const user of this.users.values()) {
-      if (user.username === username) {
-        return user;
-      }
-    }
-    return undefined;
+    const users = Array.from(this.users.values());
+    return users.find(user => user.username === username);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const user: User = {
       id: nanoid(),
       username: insertUser.username,
-      passwordHash: insertUser.passwordHash,
+      password: insertUser.password,
       createdAt: new Date(),
     };
     this.users.set(user.id, user);
@@ -63,13 +59,15 @@ export class MemStorage implements IStorage {
   async createDocument(insertDocument: InsertDocument): Promise<Document> {
     const document: Document = {
       id: nanoid(),
-      userId: insertDocument.userId,
+      userId: insertDocument.userId || null,
+      filename: insertDocument.filename,
       originalName: insertDocument.originalName,
       fileSize: insertDocument.fileSize,
-      extractedText: insertDocument.extractedText,
-      isProcessed: insertDocument.isProcessed ?? false,
+      mimeType: insertDocument.mimeType,
+      extractedText: insertDocument.extractedText || null,
+      isProcessed: false,
       uploadedAt: new Date(),
-      processedAt: insertDocument.processedAt,
+      processedAt: null,
     };
     this.documents.set(document.id, document);
     return document;
@@ -82,7 +80,11 @@ export class MemStorage implements IStorage {
   async getUserDocuments(userId: string): Promise<Document[]> {
     const userDocs = Array.from(this.documents.values())
       .filter(doc => doc.userId === userId)
-      .sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
+      .sort((a, b) => {
+        const aTime = a.uploadedAt?.getTime() || 0;
+        const bTime = b.uploadedAt?.getTime() || 0;
+        return bTime - aTime;
+      });
     return userDocs;
   }
 
@@ -105,9 +107,9 @@ export class MemStorage implements IStorage {
   async createQuery(insertQuery: InsertQuery): Promise<Query> {
     const query: Query = {
       id: nanoid(),
-      userId: insertQuery.userId,
+      userId: insertQuery.userId || null,
       queryText: insertQuery.queryText,
-      structuredData: insertQuery.structuredData,
+      structuredData: insertQuery.structuredData || null,
       createdAt: new Date(),
     };
     this.queries.set(query.id, query);
@@ -121,7 +123,11 @@ export class MemStorage implements IStorage {
   async getUserQueries(userId: string): Promise<Query[]> {
     const userQueries = Array.from(this.queries.values())
       .filter(query => query.userId === userId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort((a, b) => {
+        const aTime = a.createdAt?.getTime() || 0;
+        const bTime = b.createdAt?.getTime() || 0;
+        return bTime - aTime;
+      })
       .slice(0, 10);
     return userQueries;
   }
@@ -129,13 +135,13 @@ export class MemStorage implements IStorage {
   async createQueryResult(insertResult: InsertQueryResult): Promise<QueryResult> {
     const result: QueryResult = {
       id: nanoid(),
-      queryId: insertResult.queryId,
+      queryId: insertResult.queryId || null,
       decision: insertResult.decision,
-      amount: insertResult.amount,
-      deductible: insertResult.deductible,
-      justification: insertResult.justification,
-      confidenceScore: insertResult.confidenceScore,
-      processingTimeMs: insertResult.processingTimeMs,
+      amount: insertResult.amount || null,
+      deductible: insertResult.deductible || null,
+      justification: insertResult.justification || null,
+      confidenceScore: insertResult.confidenceScore || null,
+      processingTimeMs: insertResult.processingTimeMs || null,
       createdAt: new Date(),
     };
     this.queryResults.set(result.id, result);
@@ -143,21 +149,18 @@ export class MemStorage implements IStorage {
   }
 
   async getQueryResult(queryId: string): Promise<QueryResult | undefined> {
-    for (const result of this.queryResults.values()) {
-      if (result.queryId === queryId) {
-        return result;
-      }
-    }
-    return undefined;
+    const results = Array.from(this.queryResults.values());
+    return results.find(result => result.queryId === queryId);
   }
 
   async createDocumentClause(insertClause: InsertDocumentClause): Promise<DocumentClause> {
     const clause: DocumentClause = {
       id: nanoid(),
-      documentId: insertClause.documentId,
+      documentId: insertClause.documentId || null,
       clauseText: insertClause.clauseText,
-      clauseType: insertClause.clauseType,
-      embedding: insertClause.embedding,
+      section: insertClause.section || null,
+      clauseNumber: insertClause.clauseNumber || null,
+      embedding: insertClause.embedding || null,
       createdAt: new Date(),
     };
     this.documentClauses.set(clause.id, clause);
