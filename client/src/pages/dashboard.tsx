@@ -47,7 +47,7 @@ export default function Dashboard() {
                   src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=32&h=32" 
                   alt="User avatar" 
                 />
-                <span className="text-sm font-medium text-secondary">John Smith</span>
+                <span className="text-sm font-medium text-secondary">Arpit Mahajan</span>
               </div>
             </div>
           </div>
