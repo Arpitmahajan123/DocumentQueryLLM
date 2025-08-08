@@ -1,38 +1,32 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import multer from "multer";
 import path from "path";
-import { storage } from "./storage";
+import fs from "fs";
+import { storage as dbStorage } from "./storage";
 import { documentAnalyzer } from "./services/documentAnalyzer";
 import { insertDocumentSchema, insertQuerySchema } from "@shared/schema";
-
-// Configure multer for file uploads
-const upload = multer({
-  dest: 'uploads/',
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only PDF, DOC, and DOCX files are allowed.'));
-    }
-  }
-});
+import { handleFileUpload } from "./multerConfig";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
-  // Create demo user on startup
-  let DEMO_USER_ID = "demo-user-123";
+  // Ensure uploads directory exists
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    try {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      console.log("Created uploads directory");
+    } catch (err) {
+      console.error("Failed to create uploads directory:", err);
+    }
+  }
   
-  // Initialize demo user
+  // Create demo user on startup
+  let DEMO_USER_ID = "demo-user-123";  // Initialize demo user
   const initDemoUser = async () => {
     try {
-      let user = await storage.getUserByUsername("demo-user");
+      let user = await dbStorage.getUserByUsername("demo-user");
       if (!user) {
-        user = await storage.createUser({
+        user = await dbStorage.createUser({
           username: "demo-user",
           password: "demo-pass"
         });
@@ -46,24 +40,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   await initDemoUser();
 
-  // Upload document endpoint
-  app.post("/api/documents/upload", upload.single('document'), async (req, res) => {
+  // Upload document endpoint - using our custom file upload handler
+  app.post("/api/documents/upload", handleFileUpload('document'), async (req, res) => {
     try {
+      // At this point, multer has already validated the file and attached it to req.file
+      // Our custom handleFileUpload middleware ensures req.file is not undefined
       if (!req.file) {
+        // This should never happen due to our middleware, but TypeScript doesn't know that
         return res.status(400).json({ error: "No file uploaded" });
       }
-
+      
+      console.log("File uploaded successfully:", req.file);
+      
       const documentData = {
         userId: DEMO_USER_ID,
         filename: req.file.filename,
         originalName: req.file.originalname,
         fileSize: req.file.size,
-        mimeType: req.file.mimetype,
+        mimeType: req.file.mimetype || 'application/octet-stream',
         extractedText: null
       };
 
       const validatedData = insertDocumentSchema.parse(documentData);
-      const document = await storage.createDocument(validatedData);
+      const document = await dbStorage.createDocument(validatedData);
 
       // Process document asynchronously
       setTimeout(async () => {
@@ -86,14 +85,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Upload error:", error);
-      res.status(500).json({ error: "Failed to upload document" });
+      res.status(500).json({ error: "Failed to process uploaded document" });
     }
   });
 
   // Get user documents
   app.get("/api/documents", async (req, res) => {
     try {
-      const documents = await storage.getUserDocuments(DEMO_USER_ID);
+      const documents = await dbStorage.getUserDocuments(DEMO_USER_ID);
       res.json(documents);
     } catch (error) {
       console.error("Error fetching documents:", error);
@@ -104,12 +103,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete document
   app.delete("/api/documents/:id", async (req, res) => {
     try {
-      const document = await storage.getDocument(req.params.id);
+      const document = await dbStorage.getDocument(req.params.id);
       if (!document) {
         return res.status(404).json({ error: "Document not found" });
       }
 
-      // In production, you'd actually delete the file and database record
+      // Delete the file from the filesystem
+      try {
+        const filePath = path.join(process.cwd(), 'uploads', document.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          console.log(`Deleted file: ${filePath}`);
+        }
+      } catch (fsError) {
+        console.error("Error deleting file:", fsError);
+        // Continue with database deletion even if file deletion fails
+      }
+
+      // Delete the document from the database
+      await dbStorage.deleteDocument(req.params.id);
+      console.log(`Deleted document from database: ${req.params.id}`);
+
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting document:", error);
@@ -135,6 +149,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Query processing error:", error);
       res.status(500).json({ error: "Failed to process query" });
+    }
+  });
+  
+  // Document preview endpoint
+  app.get("/api/documents/:id/preview", async (req, res) => {
+    try {
+      const document = await dbStorage.getDocument(req.params.id);
+      if (!document) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      if (!document.isProcessed) {
+        return res.status(400).json({ error: "Document is still being processed" });
+      }
+
+      const filePath = path.join(process.cwd(), 'uploads', document.filename);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Document file not found" });
+      }
+
+      // For PDF files, serve directly
+      if (document.mimeType === 'application/pdf') {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${document.originalName}"`);
+        const fileStream = fs.createReadStream(filePath);
+        fileStream.pipe(res);
+      } 
+      // For other document types, serve the extracted text as HTML
+      else {
+        res.setHeader('Content-Type', 'text/html');
+        res.send(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>${document.originalName}</title>
+              <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }
+                h1 { color: #333; }
+                .content { white-space: pre-wrap; }
+              </style>
+            </head>
+            <body>
+              <h1>${document.originalName}</h1>
+              <div class="content">${document.extractedText || 'No content available'}</div>
+            </body>
+          </html>
+        `);
+      }
+    } catch (error) {
+      console.error("Error serving document preview:", error);
+      res.status(500).json({ error: "Failed to generate document preview" });
     }
   });
 

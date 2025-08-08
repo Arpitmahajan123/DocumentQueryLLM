@@ -13,6 +13,7 @@ export interface IStorage {
   getUserDocuments(userId: string): Promise<Document[]>;
   updateDocumentText(id: string, extractedText: string): Promise<void>;
   markDocumentProcessed(id: string): Promise<void>;
+  deleteDocument(id: string): Promise<void>;
 
   // Query methods
   createQuery(query: InsertQuery): Promise<Query>;
@@ -174,6 +175,20 @@ export class MemStorage implements IStorage {
 
   async getAllClauses(): Promise<DocumentClause[]> {
     return Array.from(this.documentClauses.values());
+  }
+  
+  async deleteDocument(id: string): Promise<void> {
+    // Delete the document itself
+    this.documents.delete(id);
+    
+    // Delete associated clauses
+    const clausesToDelete = Array.from(this.documentClauses.values())
+      .filter(clause => clause.documentId === id)
+      .map(clause => clause.id);
+      
+    clausesToDelete.forEach(clauseId => {
+      this.documentClauses.delete(clauseId);
+    });
   }
 }
 

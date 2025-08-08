@@ -110,7 +110,9 @@ export class FallbackProcessor {
     relevantClauses.push(...keywordMatches);
     
     // Remove duplicates and return top matches
-    return [...new Set(relevantClauses)].slice(0, 10);
+    // Convert to array without using spread operator
+    const uniqueClauses = Array.from(new Set(relevantClauses));
+    return uniqueClauses.slice(0, 10);
   }
 
   makeDecision(structuredQuery: StructuredQuery, relevantClauses: string[]): ProcessingResult {

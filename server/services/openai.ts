@@ -1,14 +1,35 @@
 import OpenAI from "openai";
 import { StructuredQuery, ProcessingResult, DecisionJustification } from "@shared/schema";
 
-// the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+// Check if API key exists
+const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR;
+if (!apiKey) {
+  console.warn("WARNING: OPENAI_API_KEY environment variable is not set. Some AI features will not work properly.");
+}
+
+// Create OpenAI client with provided key or use fallback mode
 const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key"
+  apiKey: apiKey || "sk-dummy-key-for-fallback-mode"
 });
 
 export class OpenAIService {
   async parseQuery(queryText: string): Promise<StructuredQuery> {
     try {
+      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY_ENV_VAR) {
+        console.warn("OpenAI API key not provided, using fallback mode");
+        // Return a basic structured query in fallback mode
+        return {
+          age: undefined,
+          gender: undefined,
+          procedure: queryText.length > 30 ? queryText.substring(0, 30) : queryText,
+          location: undefined,
+          policyDuration: undefined,
+          policyDurationUnit: undefined,
+          preExistingConditions: [],
+          additionalInfo: "Processed in fallback mode (no API key)"
+        };
+      }
+
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -56,6 +77,12 @@ export class OpenAIService {
 
   async findRelevantClauses(queryText: string, structuredQuery: StructuredQuery, allClauses: string[]): Promise<string[]> {
     try {
+      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY_ENV_VAR) {
+        console.warn("OpenAI API key not provided, using fallback mode for clause selection");
+        // In fallback mode, return the first few clauses (if available)
+        return allClauses.slice(0, Math.min(3, allClauses.length));
+      }
+      
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -94,6 +121,30 @@ export class OpenAIService {
     const startTime = Date.now();
     
     try {
+      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY_ENV_VAR) {
+        console.warn("OpenAI API key not provided, using fallback mode for decision making");
+        // Return a default fallback response
+        return {
+          decision: "pending",
+          confidenceScore: 0.5,
+          processingTimeMs: Date.now() - startTime,
+          coverageDetails: {
+            procedure: structuredQuery.procedure,
+            location: structuredQuery.location,
+            patientAge: structuredQuery.age,
+            policyDurationMonths: structuredQuery.policyDuration
+          },
+          justification: [
+            {
+              criterion: "API Key Validation",
+              status: "unclear",
+              sourceClause: "System Configuration",
+              description: "The system is running in fallback mode due to missing API key. Human review required."
+            }
+          ]
+        };
+      }
+      
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
